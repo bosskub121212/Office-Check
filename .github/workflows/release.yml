@@ -1,0 +1,52 @@
+# push tag เช่น v1.0.1 → ทดสอบ → build InvoiceChecker.exe บน Windows → ปล่อยใน GitHub Releases
+# โปรแกรมเครื่องนักบัญชีจะเห็นเวอร์ชันใหม่และขึ้นปุ่ม "อัพเดท"
+name: build-release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install
+        run: python -m pip install -r requirements.txt pyinstaller pytest
+
+      - name: Set version from tag
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: |
+          v="${GITHUB_REF_NAME#v}"
+          printf '# เขียนโดย GitHub Actions จาก tag\n__version__ = "%s"\n' "$v" > app/version.py
+          cat app/version.py
+
+      - name: Test
+        run: python -m pytest -q
+
+      - name: Build exe
+        run: python -m PyInstaller --noconfirm InvoiceChecker.spec
+
+      - name: Upload build (manual run)
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v4
+        with:
+          name: InvoiceChecker
+          path: dist/InvoiceChecker.exe
+
+      - name: Publish release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/InvoiceChecker.exe
+          generate_release_notes: true

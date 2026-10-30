@@ -1,0 +1,12 @@
+# ไฟล์บิลจริงของลูกค้า — ห้ามขึ้น git
+tests/private/
+*.db
+__pycache__/
+*.pyc
+build/
+dist/
+.pytest_cache/
+*.spec.bak
+~$*.xlsx
+dev-data/
+docs/private/

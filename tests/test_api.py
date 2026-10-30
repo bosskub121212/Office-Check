@@ -5,7 +5,7 @@ import openpyxl
 
 from app.api import Api, initials, short_name
 from app.store import Store
-from tests.conftest import FIX
+from tests.conftest import FIX, fixture_file
 
 
 def payload(paths):
@@ -79,3 +79,20 @@ def test_summary_alerts_duplicate_number_other_company(tmp_path):
     api.commit(res["token"])
     alerts = api.summary("2026-02")["alerts"]
     assert [a["iv"] for a in alerts] == ["NNCIV-269003"]
+
+
+def test_stored_files_are_reparsed_after_reader_upgrade(tmp_path):
+    """ไฟล์ที่นำเข้าด้วยตัวอ่านเวอร์ชันเก่า (ผลอ่านผิด) ต้องถูกอ่านใหม่จากสำเนาที่เก็บไว้"""
+    from app.reader import read_file
+    st = Store(tmp_path / "data.db")
+    f = fixture_file("269002")
+    pf = read_file(f)
+    pf.iv.vat_included = False          # จำลองผลอ่านผิดจากเวอร์ชันเก่า
+    pf.iv.date = None
+    st.add_file(pf, f.read_bytes())
+    api = Api(st)                         # เปิดโปรแกรมเวอร์ชันใหม่
+    fixed = st.files()[0][2]
+    assert fixed.iv.vat_included and fixed.iv.date is not None
+    assert st.get_setting("parser_version")
+    assert list((tmp_path / "backups").glob("*before-reparse*"))
+    assert api._reparse_if_needed() == 0  # ครั้งต่อไปไม่ต้องอ่านซ้ำ

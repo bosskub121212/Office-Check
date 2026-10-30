@@ -112,6 +112,12 @@ class Store:
         return cur.lastrowid
 
     @_locked
+    def update_parsed(self, file_id: int, pf: ParsedFile):
+        self.db.execute("UPDATE files SET parsed_json=?, filename=? WHERE id=?",
+                        (json.dumps(pf.to_dict(), ensure_ascii=False), pf.filename, file_id))
+        self.db.commit()
+
+    @_locked
     def file_rows(self) -> list[sqlite3.Row]:
         return self.db.execute("SELECT id, filename, sha256, archive_path FROM files ORDER BY id").fetchall()
 

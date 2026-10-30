@@ -18,6 +18,9 @@ from . import thaidate
 
 CENT = Decimal("0.01")
 
+# เพิ่มเลขนี้ทุกครั้งที่แก้วิธีอ่านไฟล์ → โปรแกรมจะอ่านไฟล์ที่เก็บไว้ในฐานข้อมูลใหม่ทั้งหมดตอนเปิด
+PARSER_VERSION = 2
+
 RE_IV_NO = re.compile(r"\b([A-Z]{0,6}IV-\d{4,})\b")
 RE_BI_NO = re.compile(r"\b([A-Z]{0,6}BI-\d{4,})\b")
 RE_RE_NO = re.compile(r"\b([A-Z]{0,6}(?:RECEIPT|RE|RC)-\d{4,})\b")
@@ -84,6 +87,7 @@ class Doc:
     total: Decimal | None = None
     vat_included: bool = False
     title: str = ""
+    date_source: str = ""            # "" = จากช่องวันที่ในเอกสาร, "filename" = ช่องว่าง ใช้วันที่จากชื่อไฟล์
 
     @property
     def items_sum(self) -> Decimal:
@@ -333,6 +337,13 @@ def _read_iv(g: Grid) -> Doc:
                 doc.items[-1].extra.append(text)
             else:
                 doc.items.append(Item(no=str(no or "").strip(), desc=text))
+    # ราคารวม VAT หรือไม่ ตัดสินจากตัวเลข: ป้าย "ราคาไม่รวมภาษี" ถูกใช้ทั้งสองแบบในไฟล์จริง
+    s_items = doc.items_sum
+    if doc.items and doc.total is not None and doc.subtotal is not None and doc.subtotal != doc.total:
+        if s_items == doc.total:
+            doc.vat_included = True
+        elif s_items == doc.subtotal:
+            doc.vat_included = False
     return doc
 
 
@@ -372,12 +383,33 @@ def parse_filename(name: str) -> tuple[str, str, str]:
     return iv, (b.group(1) if b else ""), (r.group(1) if r else "")
 
 
+def date_from_filename(name: str) -> date | None:
+    """'... ส่งของ 19-1-69.xlsx' → 19 ม.ค. 2569 (ใช้ตัวท้ายสุดในชื่อ)"""
+    found = re.findall(r"(?<!\d)(\d{1,2})[-.](\d{1,2})[-.](\d{2}|\d{4})(?!\d)", Path(name).stem)
+    for d, m_, y in reversed(found):
+        got = thaidate.parse_thai_date(f"{d}/{m_}/{y}")
+        if got is not None:
+            return got
+    return None
+
+
 def number_tail(no: str) -> int | None:
     """NNCBI-260045 → 45 (เทียบกับ B045 ในชื่อไฟล์)"""
     digits = re.sub(r"\D", "", no or "")
     if len(digits) < 3:
         return None
     return int(digits[-4:]) if len(digits) >= 4 else int(digits)
+
+
+def read_bytes(raw: bytes, display_name: str) -> ParsedFile:
+    import tempfile
+    fd, tmp = tempfile.mkstemp(suffix=".xlsx")
+    try:
+        with open(fd, "wb") as f:
+            f.write(raw)
+        return read_file(tmp, display_name=display_name)
+    finally:
+        Path(tmp).unlink(missing_ok=True)
 
 
 def read_file(path: str | Path, display_name: str | None = None) -> ParsedFile:
@@ -414,7 +446,11 @@ def read_file(path: str | Path, display_name: str | None = None) -> ParsedFile:
     if not pf.iv.number:
         pf.errors.append("ไม่พบเลขที่ใบกำกับภาษี (เช่น NNCIV-260001) ใน sheet ใบกำกับ")
     if pf.iv.date is None:
-        pf.errors.append(f"อ่านวันที่ใบกำกับไม่ได้ (ค่าที่เจอ: \"{pf.iv.date_raw}\")")
+        fn_date = date_from_filename(name)
+        if fn_date is not None:
+            pf.iv.date, pf.iv.date_source = fn_date, "filename"
+        else:
+            pf.errors.append(f"อ่านวันที่ใบกำกับไม่ได้ (ค่าที่เจอ: \"{pf.iv.date_raw}\") และชื่อไฟล์ไม่มีวันที่ เช่น 19-1-69")
     if pf.iv.total is None:
         pf.errors.append("ไม่พบยอดรวมทั้งสิ้นในใบกำกับ — ถ้าไฟล์ไม่ได้บันทึกจาก Excel ให้เปิดใน Excel แล้วกดบันทึกอีกครั้ง")
     return pf

@@ -31,42 +31,78 @@ class Issue:
         return asdict(self)
 
 
-def norm_text(s: str) -> str:
+UNIT_WORDS = r"(?:ชุด|เครื่อง|ชิ้น|อัน|ตัว|กล่อง|แพ็ค|ม้วน|ใบ|set|sets|pcs|pc|ea|units?|samples?|genomes?)"
+
+
+def _clean(s: str) -> str:
     s = (s or "").lower()
-    s = re.sub(r"\(?\s*s\s*/?\s*n\s*[:：].*?(\)|$)", " ", s)          # (SN : xxx)
-    s = re.sub(r"จำนวน\s*[\d.,]+\s*\S*", " ", s)                      # จำนวน 5 ชุด
-    return re.sub(r"[^0-9a-z฀-๿]", "", s)
+    s = re.sub(r"\(?\s*s\s*/?\s*n\s*[:：].*?(\)|$)", " ", s)              # (SN : xxx)
+    s = re.sub(r"จำนวน\s*[\d.,]+\s*" + UNIT_WORDS + r"?", " ", s)          # จำนวน 5 ชุด
+    s = re.sub(r"(?<![0-9a-z])\d+\s*" + UNIT_WORDS + r"(?![a-z])", " ", s)  # 1ชุด, 3 samples
+    return s
+
+
+def norm_text(s: str) -> str:
+    return re.sub(r"[^0-9a-z\u0e00-\u0e7f]", "", _clean(s))
+
+
+def _tokens(s: str) -> list[str]:
+    return [t for t in re.split(r"[^0-9a-z\u0e00-\u0e7f]+", _clean(s)) if t]
 
 
 def _is_sn_line(s: str) -> bool:
     return bool(re.match(r"^\(?\s*s\s*/?\s*n\s*[:：]", (s or "").strip(), re.I))
 
 
+def _is_qty_line(s: str) -> bool:
+    """บรรทัดที่มีแค่จำนวน + หน่วย เช่น "3 Samples", "1 ชุด" """
+    return bool(re.fullmatch(r"\s*[\d.,]+\s*[A-Za-z\u0e00-\u0e7f.]{0,15}\s*", s or ""))
+
+
 def _same_name(a: str, b: str) -> bool:
     def n(x):
         x = re.sub(r"\(\s*สำนักงานใหญ่\s*\)|สำนักงานใหญ่", "", x or "")
-        return re.sub(r"[^0-9a-z฀-๿]", "", x.lower())
+        return re.sub(r"[^0-9a-z\u0e00-\u0e7f]", "", x.lower())
     return n(a) == n(b)
+
+
+def _line_matches(line: str, item_desc: str, item_full: str) -> bool:
+    """บรรทัดในใบวางบิล/ใบเสร็จ ตรงกับรายการในใบกำกับไหม (ยอมให้เขียนย่อ / ตัดสเปคบางคำ)
+
+    - ข้อความตรงกันแบบตัดช่องว่าง (ฝั่งใดฝั่งหนึ่งอยู่ในอีกฝั่ง) → ตรง
+    - ไม่งั้นเทียบเป็นคำ: คำที่มีตัวเลข (รุ่น/รหัส เช่น 119A, E2425HSM) ต้องมีในใบกำกับทุกคำ
+      และคำทั้งหมดต้องพบในใบกำกับอย่างน้อย 75%
+    """
+    ln, d, full = norm_text(line), norm_text(item_desc), norm_text(item_full)
+    if not ln:
+        return True
+    if (d and len(d) >= 3 and d in ln) or ln in full:
+        return True
+    toks = _tokens(line)
+    if len(toks) < 2:
+        return False
+    full_toks = set(_tokens(item_full))
+
+    def found(t):
+        return t in full_toks or (len(t) >= 3 and t in full)
+    if not all(found(t) for t in toks if re.search(r"\d", t)):
+        return False
+    return sum(1 for t in toks if found(t)) / len(toks) >= 0.75
 
 
 def _match_lines(iv: Doc, lines: list[str]) -> tuple[list[str], list[str]]:
     """คืน (บรรทัดที่ไม่มีในใบกำกับ, รายการในใบกำกับที่ไม่ถูกเขียนถึง)"""
-    items = [(norm_text(i.desc), norm_text(i.full_desc), i.desc) for i in iv.items if i.desc]
+    items = [(i.desc, i.full_desc) for i in iv.items if i.desc]
     extra, used = [], set()
     for raw in lines:
-        if _is_sn_line(raw):
+        if _is_sn_line(raw) or _is_qty_line(raw) or len(norm_text(raw)) < 3:
             continue
-        ln = norm_text(raw)
-        if len(ln) < 3:
-            continue
-        hit = False
-        for idx, (d, full, _) in enumerate(items):
-            if (d and len(d) >= 3 and d in ln) or ln in full:
-                hit = True
-                used.add(idx)
-        if not hit:
+        hits = [idx for idx, (d, full) in enumerate(items) if _line_matches(raw, d, full)]
+        if hits:
+            used.update(hits)
+        else:
             extra.append(raw.strip())
-    missing = [items[i][2] for i in range(len(items)) if i not in used]
+    missing = [items[i][0] for i in range(len(items)) if i not in used]
     return extra, missing
 
 
@@ -146,6 +182,10 @@ def check_file(pf: ParsedFile) -> list[Issue]:
         if abs(iv.vat - expect_vat) > CENT or iv.subtotal + iv.vat != iv.total:
             out.append(Issue(RED, "VAT_CALC", "IV",
                              f"VAT/ยอดรวมไม่ลงกัน: ก่อน VAT {iv.subtotal:,} + VAT {iv.vat:,} (ควรเป็น {expect_vat:,}) ≠ รวม {iv.total:,}"))
+    if iv.date_source == "filename":
+        out.append(Issue(RED, "DATE_MISSING", "IV",
+                         f"ใบกำกับไม่ได้ใส่วันที่ — ใช้วันที่จากชื่อไฟล์ ({thaidate.fmt(iv.date, short_year=False)}) ไปก่อน "
+                         f"ต้องใส่วันที่ในใบกำกับให้ครบ (ใบกำกับภาษีต้องมีวันที่ออกเอกสาร)"))
     if iv.vat_included:
         out.append(Issue(BLUE, "VAT_INCLUDED", "IV", f"ราคาสินค้ารวม VAT แล้ว ถอด VAT ด้วย 7/107: ก่อน VAT {iv.subtotal:,} · VAT {iv.vat:,}"))
 

@@ -9,6 +9,10 @@ if "%~1"=="" (
   exit /b 1
 )
 python tools\set_version.py %~1 || goto :fail
+tasklist /FI "IMAGENAME eq InvoiceChecker.exe" 2>nul | find /I "InvoiceChecker.exe" >nul && (
+  echo *** โปรแกรมตรวจบิล ^(InvoiceChecker.exe^) ยังเปิดอยู่ กรุณาปิดก่อนแล้วรันใหม่ ***
+  goto :fail
+)
 echo === ติดตั้งแพ็กเกจ ===
 python -m pip install -q -r requirements.txt pyinstaller pytest || goto :fail
 echo === ทดสอบ ===

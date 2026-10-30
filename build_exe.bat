@@ -1,6 +1,10 @@
 @echo off
 chcp 65001 >nul
 cd /d "%~dp0"
+tasklist /FI "IMAGENAME eq InvoiceChecker.exe" 2>nul | find /I "InvoiceChecker.exe" >nul && (
+  echo *** โปรแกรมตรวจบิล ^(InvoiceChecker.exe^) ยังเปิดอยู่ กรุณาปิดก่อนแล้วรันใหม่ ***
+  goto :fail
+)
 echo === ติดตั้งแพ็กเกจ ===
 python -m pip install -r requirements.txt pyinstaller pytest || goto :fail
 echo === ทดสอบ ===

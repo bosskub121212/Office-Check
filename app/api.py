@@ -10,7 +10,6 @@ import logging
 import os
 import subprocess
 import sys
-import tempfile
 import threading
 import uuid
 from datetime import date
@@ -20,7 +19,7 @@ from . import archive, bugreport, config, thaidate, updater
 from .checker import DOC_NAME
 from .export import export_month
 from .ledger import Bill, Ledger, m, short_items
-from .reader import ParsedFile, read_file
+from .reader import ParsedFile, read_bytes
 from .store import Store
 
 log = logging.getLogger(__name__)
@@ -70,8 +69,32 @@ class Api:
         self._pending: dict[str, list[tuple[ParsedFile, bytes]]] = {}
         self._ledger: Ledger | None = None
         self._update: dict | None = None
+        self._reparse_if_needed()
         self._window = None         # ตั้งโดย main.py (ใช้เปิด dialog บันทึกไฟล์) — ขึ้นต้นด้วย _ เพื่อไม่ให้ pywebview ส่งไปหน้าจอ
         self._on_quit = None
+
+    def _reparse_if_needed(self) -> int:
+        """อ่านไฟล์ที่เก็บไว้ใหม่ เมื่อวิธีอ่านไฟล์ถูกปรับปรุง (PARSER_VERSION เปลี่ยน)"""
+        from .reader import PARSER_VERSION, read_bytes
+        if self._store.get_setting("parser_version") == str(PARSER_VERSION):
+            return 0
+        rows = self._store.file_rows()
+        if rows:
+            self._store.backup(f"before-reparse-{PARSER_VERSION}")
+        n = 0
+        for r in rows:
+            blob = self._store.file_blob(r["id"])
+            if blob is None:
+                continue
+            try:
+                self._store.update_parsed(r["id"], read_bytes(blob[1], blob[0]))
+                n += 1
+            except Exception:  # noqa: BLE001 — ไฟล์เดียวพังต้องไม่ทำให้โปรแกรมเปิดไม่ได้
+                log.exception("reparse %s", r["filename"])
+        self._store.set_setting("parser_version", str(PARSER_VERSION))
+        self._invalidate()
+        log.info("reparsed %d files with parser v%s", n, PARSER_VERSION)
+        return n
 
     # ------------------------------------------------------------ internal
     def _lg(self) -> Ledger:
@@ -266,15 +289,9 @@ class Api:
         """อ่านไฟล์ที่ลากมาวาง (ยังไม่บันทึก) แล้วบอกผลทีละไฟล์"""
         token = uuid.uuid4().hex
         parsed = []
-        tmp = Path(tempfile.mkdtemp(prefix="ic-"))
         for f in files:
             raw = base64.b64decode(f["b64"])
-            p = tmp / f"in-{len(parsed)}.xlsx"
-            p.write_bytes(raw)
-            pf = read_file(p, display_name=f["name"])
-            p.unlink(missing_ok=True)
-            parsed.append((pf, raw))
-        tmp.rmdir()
+            parsed.append((read_bytes(raw, f["name"]), raw))
         # ดูผลเหมือนบันทึกแล้ว (กฎเลขซ้ำต้องเทียบกับของเดิมในระบบ)
         existing = self._store.files()
         seen = {pf.sha256 for _, _, pf in existing}

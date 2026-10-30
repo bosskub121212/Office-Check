@@ -12,7 +12,7 @@ from datetime import date, timedelta
 from decimal import Decimal
 
 from . import thaidate
-from .checker import DROP, LEVEL_ORDER, RED, Issue, billing_valid, check_file, sales_countable
+from .checker import DROP, LEVEL_ORDER, RED, YELLOW, Issue, billing_valid, check_file, sales_countable
 from .reader import ParsedFile
 
 ZERO = Decimal("0.00")
@@ -97,6 +97,8 @@ class Ledger:
             else:
                 all_bills.append(b)
 
+        self._fix_years(all_bills)
+
         # กฎเลขใบกำกับซ้ำ (แยกตามลูกค้า):
         #  - ลูกค้าเดียวกัน → ไฟล์ copy: วันที่เก่าสุดชนะ · วันที่เท่ากัน → ไฟล์ที่นำเข้าทีหลังชนะ (แก้แล้วอัพซ้ำ)
         #  - คนละบริษัท → บิลจริงที่ออกเลขซ้ำโดยผิดพลาด: นับยอดทุกใบ และแจ้งเตือนแดงให้แก้/แจ้งสรรพากร
@@ -151,6 +153,46 @@ class Ledger:
                 b.expected = b.due + timedelta(days=self.avg_delay.get(b.cust_key, 0))
 
         self.bills.sort(key=lambda b: (b.iv.date, b.iv.number))
+
+    @staticmethod
+    def _fix_years(bills: list[Bill]):
+        """วันที่ใบกำกับลงปีผิด (เช่น 9/3/2568 ทั้งที่เลขที่เป็น NNCIV-26xxxx = ค.ศ. 2026 = พ.ศ. 2569)
+
+        เลขที่บิล 2 หลักแรกคือปี ค.ศ. ถ้าปีในวันที่ไม่ตรง และบิลเลขข้างเคียงที่ปีถูกต้องลงวันที่ใกล้กับวันที่ที่แก้ปีแล้ว
+        มากกว่าวันที่เดิม → นับตามปีที่แก้ + แจ้งเตือนแดง · ไม่มีบิลข้างเคียงให้เทียบ → แจ้งเตือนเหลือง ไม่แก้
+        """
+        def parts(b):
+            digits = re.sub(r"\D", "", b.iv.number)
+            return (int(digits[:2]), int(digits[2:])) if len(digits) >= 6 else (None, None)
+
+        info = {id(b): parts(b) for b in bills}
+        # หลักฐานใช้เฉพาะบิลที่ปีถูกตั้งแต่ต้น (ไม่อ้างบิลที่เพิ่งถูกแก้ปีให้)
+        good = [o for o in bills if info[id(o)][0] is not None and o.iv.date.year % 100 == info[id(o)][0]]
+        for b in bills:
+            yy, seq = info[id(b)]
+            if yy is None or b.iv.date.year % 100 == yy:
+                continue
+            orig = b.iv.date
+            near = sorted((o for o in good if info[id(o)][0] == yy and abs(info[id(o)][1] - seq) <= 50),
+                          key=lambda o: abs(info[id(o)][1] - seq))[:4]
+            try:
+                fixed = orig.replace(year=2000 + yy)
+            except ValueError:
+                fixed = None
+            if near and fixed:
+                ref = sorted(o.iv.date for o in near)[len(near) // 2]
+                if abs((fixed - ref).days) < abs((orig - ref).days):
+                    b.pf.iv.date = fixed
+                    b.pf.iv.date_source = "year_fixed"
+                    names = ", ".join(f"{o.iv.number} ({thaidate.fmt(o.iv.date)})" for o in near[:2])
+                    b.issues.insert(0, Issue(RED, "DATE_YEAR", "IV",
+                                             f"ใบกำกับลงวันที่ {thaidate.fmt_slash(orig)} (ปี {orig.year + 543}) แต่เลขที่ {b.iv.number} "
+                                             f"และบิลเลขข้างเคียง {names} เป็นปี {fixed.year + 543} — นับเป็น "
+                                             f"{thaidate.fmt(fixed, short_year=False)} ไปก่อน ต้องแก้ปีในใบกำกับ"))
+                    continue
+            b.issues.insert(0, Issue(YELLOW, "DATE_YEAR", "IV",
+                                     f"ปีในวันที่ใบกำกับ ({orig.year + 543}) ไม่ตรงกับปีในเลขที่ {b.iv.number} "
+                                     f"(ค.ศ. 20{yy:02d} = พ.ศ. {2000 + yy + 543}) — ตรวจว่าพิมพ์ปีผิดหรือไม่"))
 
     def _dedupe_doc(self, attr: str, code: str, name: str):
         by_no = defaultdict(list)

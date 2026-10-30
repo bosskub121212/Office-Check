@@ -115,7 +115,7 @@ const RENDER = {
     const d = await api.summary(S.month);
     S.data = d;
     const k = d.kpi;
-    $("#subtitle").textContent = `ใบกำกับภาษี ${k.count} ใบ · ใบวางบิล ${k.billed_count} ใบ${d.problem_count ? ` · ต้องตรวจ ${d.problem_count}` : ""}`;
+    $("#subtitle").textContent = `ใบกำกับภาษี ${k.count} ใบ · ใบวางบิล ${k.billed_count} ใบ${d.problem_count ? ` · ต้องแก้ ${d.problem_count}` : ""}${d.note_count ? ` · ข้อสังเกต ${d.note_count}` : ""}`;
     const kpis = `<section class="kpis" aria-label="ตัวเลขสรุป">
       <div class="kpi lav"><div class="deco hatch" style="right:-24px;bottom:-24px;width:120px;height:120px;border-radius:30px;transform:rotate(12deg)"></div>
         <span class="label">ยอดขายก่อน VAT</span><span class="value">฿${k.sub}</span><span class="sub">จากใบกำกับภาษี ${k.countable} ใบ${k.countable < k.count ? ` (ไม่นับ ${k.count - k.countable})` : ""}</span></div>

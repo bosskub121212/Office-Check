@@ -117,3 +117,10 @@ def test_migrate_v1_database(tmp_path):
     assert [r for r in st.file_rows()] == []
     assert "NNCBI-260901" in st.payments()
     assert list((tmp_path / "backups").glob("*before-schema-2.db"))
+
+
+def test_empty_year_folder_removed_after_move(tmp_path):
+    api, root = make_api(tmp_path)
+    (root / "2568" / "03 มีนาคม 2568").mkdir(parents=True)
+    api.sync_archive()
+    assert not (root / "2568").exists()

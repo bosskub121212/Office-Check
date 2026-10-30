@@ -139,7 +139,22 @@ def sync(store, ledger, root: Path) -> dict:
         except OSError as e:
             log.exception("archive %s", row["filename"])
             out["errors"].append(f"{row['filename']}: {e}")
+    _remove_empty_dirs(root)
     return out
+
+
+def _remove_empty_dirs(root: Path):
+    """โฟลเดอร์ปี/เดือนที่ว่างหลังย้ายไฟล์ออก (เช่น ปีที่พิมพ์ผิด) — ลบเฉพาะโฟลเดอร์ที่ว่างจริง"""
+    if not root.exists():
+        return
+    for d in sorted((p for p in root.rglob("*") if p.is_dir()), key=lambda p: len(p.parts), reverse=True):
+        try:
+            next(d.iterdir())
+        except StopIteration:
+            try:
+                d.rmdir()
+            except OSError:
+                pass
 
 
 def move_to_removed(root: Path, path: str | None) -> str | None:

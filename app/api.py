@@ -191,6 +191,7 @@ class Api:
             "problems": [{"iv": b.iv.number if b.iv else b.pf.filename, "level": b.level,
                           "issues": [i for i in self._issues(b) if i["level"] != "blue"]} for b in problems][:6],
             "problem_count": sum(1 for b in lg.problem_bills(month) if b.level in ("red", "drop")),
+            "note_count": sum(1 for b in bills if b.level == "yellow"),
             "alerts": self._dup_alerts(bills),
         }
 

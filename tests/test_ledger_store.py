@@ -111,3 +111,37 @@ def test_copy_of_same_company_with_different_total_hints(tmp_path):
     lg = Ledger(st.files(), st.payments())
     d = next(b for b in lg.dropped if b.iv.number == "NNCIV-269001")
     assert "ยอดไม่เท่ากัน" in d.issues[0].message
+
+
+def _bill_file(tmp_path, no, date_txt, name=None):
+    from openpyxl import Workbook
+
+    from tests import make_fixtures as mk
+    wb = Workbook()
+    mk.iv_sheet(wb, "ใบกำกับภาษี ต้นฉบับ (2)", no, date_txt, mk.CUST_A, [("Item", 1, 1000)], due="เงินสด", term="เงินสด")
+    del wb["Sheet"]
+    p = tmp_path / (name or f"{no}.xlsx")
+    wb.save(p)
+    return p
+
+
+def test_wrong_year_fixed_by_neighbours(tmp_path):
+    st = Store(tmp_path / "d.db")
+    for no, d in (("NNCIV-260089", "9/3/2569"), ("NNCIV-260090", "9/3/2568"), ("NNCIV-260100", "9/3/2569")):
+        f = _bill_file(tmp_path, no, d)
+        st.add_file(read_file(f), f.read_bytes())
+    lg = Ledger(st.files(), st.payments())
+    b = next(b for b in lg.bills if b.iv.number == "NNCIV-260090")
+    assert b.iv.date == date(2026, 3, 9) and b.month == "2026-03"
+    assert b.issues[0].code == "DATE_YEAR" and b.issues[0].level == "red" and "2568" in b.issues[0].message
+    assert b.countable and len(lg.in_month("2026-03")) == 3
+
+
+def test_wrong_year_without_neighbours_only_warns(tmp_path):
+    st = Store(tmp_path / "d.db")
+    f = _bill_file(tmp_path, "NNCIV-260090", "9/3/2568")
+    st.add_file(read_file(f), f.read_bytes())
+    lg = Ledger(st.files(), st.payments())
+    b = lg.bills[0]
+    assert b.iv.date == date(2025, 3, 9)
+    assert b.issues[0].code == "DATE_YEAR" and b.issues[0].level == "yellow"

@@ -48,11 +48,12 @@ def test_february_totals(tmp_path):
     st = load_all(tmp_path)
     lg = Ledger(st.files(), st.payments())
     t = lg.totals(lg.in_month("2026-02"))
-    # นับ: 269001 (30,900) + 269002 (595.33) + 269003 (14,000) + 269004 (5,000) + 269005 (3,000)
+    # นับ: 269001 (30,900) + 269002 (595.33) + 269003 ลูกค้าบี (14,000) + 269003 ลูกค้าซี (2,000)
+    #      + 269004 (5,000) + 269005 (3,000)
     # ไม่นับ: 269006 (ผลรวมรายการไม่ตรง) และไฟล์ copy ของ 269001
-    assert t["sub"] == D("53495.33")
-    assert t["vat"] == D("3744.67")
-    assert t["total"] == D("57240.00")
+    assert t["sub"] == D("55495.33")
+    assert t["vat"] == D("3884.67")
+    assert t["total"] == D("59380.00")
     # วางบิล: 269001 + 269003 (269004 ไม่มี B, 269005 เลขซ้ำ)
     assert t["billed_count"] == 2
     assert t["billed_total"] == D("33063.00") + D("14980.00")
@@ -61,7 +62,7 @@ def test_february_totals(tmp_path):
 def test_due_month_and_payment_learning(tmp_path):
     st = load_all(tmp_path)
     lg = Ledger(st.files(), st.payments())
-    march_due = [b.iv.number for b in lg.due_in_month("2026-03")]
+    march_due = [b.iv.number for b in lg.due_in_month("2026-03")]  # 269003 ลูกค้าซีเป็นเงินสด ไม่มีใบวางบิล
     assert march_due == ["NNCIV-269001", "NNCIV-269003"]           # 3 ก.พ.+30 = 5 มี.ค., 10 ก.พ.+30 = 12 มี.ค.
     assert [b.iv.number for b in lg.due_in_month("2026-04")] == ["NNCIV-269007"]
     assert len(lg.payables()) == 3
@@ -92,3 +93,21 @@ def test_backup_rotation(tmp_path):
             except OSError:
                 pass
         assert not [h for h in held if "backups" in h]
+
+
+def test_same_number_different_company_counts_both_and_alerts(tmp_path):
+    st = load_all(tmp_path)
+    lg = Ledger(st.files(), st.payments())
+    both = [b for b in lg.bills if b.iv.number == "NNCIV-269003"]
+    assert sorted(b.iv.tax_id for b in both) == ["0000000000002", "0000000000003"]
+    for b in both:
+        assert b.countable and b.issues[0].code == "DUP_IV_REAL" and b.issues[0].level == "red"
+        assert "สรรพากร" in b.issues[0].message
+    assert not [b for b in lg.dropped if b.iv.number == "NNCIV-269003"]
+
+
+def test_copy_of_same_company_with_different_total_hints(tmp_path):
+    st = load_all(tmp_path)
+    lg = Ledger(st.files(), st.payments())
+    d = next(b for b in lg.dropped if b.iv.number == "NNCIV-269001")
+    assert "ยอดไม่เท่ากัน" in d.issues[0].message

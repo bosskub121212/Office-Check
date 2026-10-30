@@ -16,7 +16,7 @@ import uuid
 from datetime import date
 from pathlib import Path
 
-from . import bugreport, config, thaidate, updater
+from . import archive, bugreport, config, thaidate, updater
 from .checker import DOC_NAME
 from .export import export_month
 from .ledger import Bill, Ledger, m, short_items
@@ -103,9 +103,17 @@ class Api:
             ],
             "bi": b.pf.bi.number if b.billed else "",
             "due": thaidate.fmt(b.due), "paid": thaidate.fmt(b.paid) if b.paid else "",
-            "level": b.level, "level_txt": LEVEL_TXT.get(b.level, ""),
+            "level": b.level, "level_txt": self._level_txt(b),
             "issues": self._issues(b),
         }
+
+    @staticmethod
+    def _level_txt(b: Bill) -> str:
+        if b.dropped:
+            return "ทิ้ง (ไฟล์ copy)"
+        if b.level == "drop":            # ทั้งใบยังนับ แต่ใบวางบิล/ใบเสร็จเลขซ้ำ
+            return "เลขเอกสารซ้ำ"
+        return LEVEL_TXT.get(b.level, "")
 
     def _pay_row(self, b: Bill) -> dict:
         return {"bi": b.pf.bi.number, "iv": b.iv.number, "amount": m(b.iv.total), "amount_v": float(b.iv.total),
@@ -126,6 +134,7 @@ class Api:
             "current": bill_months[-1] if bill_months else "",
             "data_dir": str(config.data_dir()), "today": date.today().isoformat(),
             "file_count": len(lg.bills) + len(lg.dropped) + len(lg.unreadable),
+            "archive_dir": str(self._archive_root()),
         }
 
     def summary(self, month: str) -> dict:
@@ -159,7 +168,22 @@ class Api:
             "problems": [{"iv": b.iv.number if b.iv else b.pf.filename, "level": b.level,
                           "issues": [i for i in self._issues(b) if i["level"] != "blue"]} for b in problems][:6],
             "problem_count": sum(1 for b in lg.problem_bills(month) if b.level in ("red", "drop")),
+            "alerts": self._dup_alerts(bills),
         }
+
+    @staticmethod
+    def _dup_alerts(bills) -> list[dict]:
+        """เลขเอกสารซ้ำแต่เป็นบิลจริงคนละบริษัท — ต้องแจ้งเตือนเด่น ๆ"""
+        seen, out = set(), []
+        for b in bills:
+            for i in b.issues:
+                if i.code.endswith("_REAL"):
+                    key = (i.code, b.iv.number if i.code == "DUP_IV_REAL" else i.message.split()[0])
+                    if key in seen:
+                        continue
+                    seen.add(key)
+                    out.append({"iv": b.iv.number, "code": i.code, "message": i.message})
+        return out
 
     def all_bills(self) -> dict:
         lg = self._lg()
@@ -204,7 +228,7 @@ class Api:
             rows.append({"file_id": b.file_id, "iv": b.iv.number if b.iv else "", "filename": b.pf.filename,
                          "date": thaidate.fmt(b.iv.date) if b.iv and b.iv.date else "", "month": b.month,
                          "customer": short_name(b.iv.customer_name) if b.iv else "",
-                         "level": b.level, "level_txt": LEVEL_TXT.get(b.level, ""), "dropped": b.dropped,
+                         "level": b.level, "level_txt": self._level_txt(b), "dropped": b.dropped,
                          "issues": self._issues(b)})
         return {"rows": rows}
 
@@ -276,16 +300,20 @@ class Api:
             else:
                 r.update(level=b.level, iv=pf.iv.number, date=thaidate.fmt(pf.iv.date), customer=short_name(pf.iv.customer_name),
                          total=m(pf.iv.total), billed=b.billed, dropped=b.dropped, issues=self._issues(b),
-                         headline=("ทิ้ง: เลขซ้ำกับบิลที่เก่ากว่า" if b.dropped else LEVEL_TXT.get(b.level, "")))
+                         headline=self._level_txt(b))
             results.append(r)
         self._pending[token] = parsed
         return {"token": token, "results": results,
                 "new_count": sum(1 for s in status if s == "new")}
 
-    def commit(self, token: str) -> dict:
+    def commit(self, token: str, skip: list[int] | None = None) -> dict:
         parsed = self._pending.pop(token, None)
         if parsed is None:
             return {"ok": False, "error": "หมดเวลา กรุณาเลือกไฟล์ใหม่อีกครั้ง"}
+        skip_set = {int(i) for i in (skip or [])}
+        parsed = [x for i, x in enumerate(parsed) if i not in skip_set]
+        if not parsed:
+            return {"ok": True, "saved": 0, "month": "", "archive": {}}
         if self._store.files():
             self._store.backup("before-import")
         saved = 0
@@ -295,7 +323,8 @@ class Api:
                 log.info("imported %s (%s)", pf.filename, pf.iv.number if pf.iv else "-")
         self._invalidate()
         months = sorted({thaidate.month_key(pf.iv.date) for pf, _ in parsed if pf.iv and pf.iv.date})
-        return {"ok": True, "saved": saved, "month": months[-1] if months else ""}
+        arc = self.sync_archive()
+        return {"ok": True, "saved": saved, "month": months[-1] if months else "", "archive": arc}
 
     def cancel(self, token: str) -> dict:
         self._pending.pop(token, None)
@@ -303,9 +332,67 @@ class Api:
 
     def remove_file(self, file_id: int) -> dict:
         self._store.backup("before-remove")
+        row = next((r for r in self._store.file_rows() if r["id"] == int(file_id)), None)
+        moved = None
+        try:
+            moved = archive.move_to_removed(self._archive_root(), row["archive_path"] if row else None)
+        except OSError:
+            log.exception("move removed")
         self._store.delete_file(int(file_id))
         self._invalidate()
-        return {"ok": True}
+        self.sync_archive()       # ลบใบที่ชนะออก ใบที่เคยถูกทิ้งอาจกลับมามีผล → ย้ายโฟลเดอร์ให้ถูก
+        return {"ok": True, "moved_to": moved}
+
+    # ------------------------------------------------------------ โฟลเดอร์เก็บไฟล์บิล
+    def _archive_root(self) -> Path:
+        saved = self._store.get_setting("archive_dir")
+        return Path(saved) if saved else archive.default_root()
+
+    def sync_archive(self) -> dict:
+        try:
+            res = archive.sync(self._store, self._lg(), self._archive_root())
+        except OSError as e:
+            log.exception("sync archive")
+            return {"ok": False, "error": f"จัดไฟล์ลงโฟลเดอร์ไม่สำเร็จ: {e}", "root": str(self._archive_root())}
+        if res["errors"]:
+            log.warning("archive errors: %s", res["errors"])
+        return {"ok": not res["errors"], **res}
+
+    def choose_archive(self, path: str | None = None) -> dict:
+        """เปลี่ยนโฟลเดอร์ (เปิดหน้าต่างเลือกโฟลเดอร์ ถ้าไม่ได้ส่ง path มา) แล้วคัดลอกไฟล์ทั้งหมดไปที่ใหม่
+        ไฟล์ในโฟลเดอร์เดิมไม่ถูกลบ"""
+        if not path and self._window is not None:
+            try:
+                import webview
+                res = self._window.create_file_dialog(webview.FOLDER_DIALOG, directory=str(self._archive_root().parent))
+                if not res:
+                    return {"ok": False, "cancelled": True}
+                path = res if isinstance(res, str) else res[0]
+            except Exception:  # noqa: BLE001
+                log.exception("folder dialog")
+        if not path:
+            return {"ok": False, "error": "ยังไม่ได้เลือกโฟลเดอร์"}
+        p = Path(path)
+        if p.name != archive.FOLDER_NAME:
+            p = p / archive.FOLDER_NAME          # เลือก Documents → ใช้ Documents\ตรวจบิล
+        try:
+            p.mkdir(parents=True, exist_ok=True)
+        except OSError as e:
+            return {"ok": False, "error": f"สร้างโฟลเดอร์ไม่ได้: {e}"}
+        self._store.set_setting("archive_dir", str(p))
+        log.info("archive dir -> %s", p)
+        return {**self.sync_archive(), "root": str(p)}
+
+    def open_month_folder(self, month: str) -> dict:
+        root = self._archive_root()
+        target = root
+        if month:
+            y, mo = (int(x) for x in month.split("-"))
+            folder = archive.month_dir(root, date(y, mo, 1))
+            if folder.exists():
+                target = folder
+        target.mkdir(parents=True, exist_ok=True)
+        return {**self.open_path(str(target)), "path": str(target)}
 
     def export(self, month: str) -> dict:
         name = f"สรุปบิล-{thaidate.month_label(month, short=True).replace(' ', '-')}.xlsx"

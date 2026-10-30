@@ -1,10 +1,11 @@
-# push tag เช่น v1.0.1 → ทดสอบ → build InvoiceChecker.exe บน Windows → ปล่อยใน GitHub Releases
-# โปรแกรมเครื่องนักบัญชีจะเห็นเวอร์ชันใหม่และขึ้นปุ่ม "อัพเดท"
+# build InvoiceChecker.exe บน Windows ของ GitHub (กดรันเองที่แท็บ Actions → build-release → Run workflow)
+# ตอนนี้ปล่อยเวอร์ชันด้วย release.bat บนเครื่อง DEV แทน เพราะบัญชี GitHub ถูกล็อก Actions เรื่อง billing
+# ถ้าปลดล็อกแล้วอยากให้ build อัตโนมัติทุกครั้งที่ push tag ให้เพิ่มกลับ:
+#   push:
+#     tags: ["v*"]
 name: build-release
 
 on:
-  push:
-    tags: ["v*"]
   workflow_dispatch:
 
 permissions:

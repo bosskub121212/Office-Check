@@ -31,6 +31,9 @@ def main():
 
     store = Store(config.data_dir() / "data.db")
     api = Api(store)
+    # จัดไฟล์ลงโฟลเดอร์ ตรวจบิล\ปี\เดือน (เผื่อไฟล์ที่นำเข้าก่อนเวอร์ชัน 1.0.1 / ไฟล์ที่ถูกย้ายหาย)
+    import threading
+    threading.Thread(target=api.sync_archive, daemon=True).start()
     index = config.resource_dir() / "ui" / "index.html"
     window = webview.create_window(
         f"{config.APP_TITLE} v{config.__version__}", url=index.as_uri(), js_api=api,

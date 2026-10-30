@@ -94,8 +94,8 @@ button{cursor:pointer}
 /* ---------- table ---------- */
 .tw{overflow-x:auto}
 table{width:100%;border-collapse:separate;border-spacing:0;font-size:14px}
-th{padding:10px 12px;font-weight:500;font-size:12.5px;color:var(--muted);text-align:left;white-space:nowrap}
-td{padding:12px;border-top:1px solid var(--line);vertical-align:top}
+th{padding:10px 10px;font-weight:500;font-size:12.5px;color:var(--muted);text-align:left;white-space:nowrap}
+td{padding:12px 10px;border-top:1px solid var(--line);vertical-align:top}
 th:first-child,td:first-child{padding-left:16px}
 th:last-child,td:last-child{padding-right:16px}
 tbody tr{transition:background-color .15s}
@@ -105,7 +105,7 @@ tr.dim td{opacity:.55}
 .b{font-weight:600}
 .m{font-size:12.5px;color:var(--muted)}
 .nowrap{white-space:nowrap}
-.items{min-width:220px;max-width:320px}
+.items{min-width:190px;max-width:300px}
 .doc{padding:2px 8px;border-radius:8px;font-size:12px;font-weight:600;background:var(--lav);white-space:nowrap}
 .doc.off{background:transparent;border:1px dashed #b9b4c9;color:var(--muted);font-weight:400;text-decoration:line-through}
 .doc.warn{background:var(--red-bg);color:var(--red);text-decoration:line-through}
@@ -158,9 +158,9 @@ tr.dim td{opacity:.55}
 .modal{width:760px;max-width:100%;max-height:100%;overflow:auto;background:var(--shell);border-radius:28px;padding:26px;display:flex;flex-direction:column;gap:16px;
   box-shadow:0 30px 80px rgba(42,33,51,.35);animation:pop .3s var(--ease) both}
 .modal h2{margin:0;font-size:22px}
-.drop{border:2px dashed #b9b2f2;border-radius:22px;background:#fff;padding:36px 20px;display:flex;flex-direction:column;align-items:center;gap:10px;text-align:center;color:var(--muted);transition:background-color .2s,border-color .2s}
-.drop.over{background:var(--lav);border-color:var(--accent)}
-.drop b{color:var(--ink);font-size:16px}
+.dropbox{border:2px dashed #b9b2f2;border-radius:22px;background:#fff;padding:36px 20px;display:flex;flex-direction:column;align-items:center;gap:10px;text-align:center;color:var(--muted);transition:background-color .2s,border-color .2s}
+.dropbox.over{background:var(--lav);border-color:var(--accent)}
+.dropbox b{color:var(--ink);font-size:16px}
 .res{display:flex;flex-direction:column;gap:8px}
 .resrow{background:#fff;border-radius:16px;padding:12px 14px;display:flex;flex-direction:column;gap:6px;animation:rise .35s var(--ease) both}
 .resrow .l1{display:flex;flex-wrap:wrap;justify-content:space-between;gap:8px;align-items:center}
@@ -168,6 +168,17 @@ tr.dim td{opacity:.55}
 .resrow ul{margin:0;padding-left:18px;font-size:13px}
 .foot{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:10px}
 .dropzone-overlay{position:fixed;inset:0;z-index:80;background:rgba(109,93,240,.16);border:4px dashed var(--accent);border-radius:24px;display:flex;align-items:center;justify-content:center;font-size:24px;font-weight:600;color:var(--accent-ink);pointer-events:none}
+
+/* ---------- alert / delete / import pick ---------- */
+.alert{display:flex;gap:14px;padding:18px 20px;border-radius:var(--r-lg);background:var(--red-bg);color:#5c0f1d;border:1.5px solid #f2a5b2;animation:rise .4s var(--ease) both}
+.alert svg{flex:0 0 auto;color:var(--red);margin-top:2px}
+.alert h2{margin:0 0 4px;font-size:17px;color:#7d1226}
+.alert ul{margin:0 0 6px;padding-left:18px;font-size:14px}
+.ibtn.rm{color:#8e8a99;width:36px;height:36px}
+.ibtn.rm:hover{background:var(--red-bg);color:var(--red)}
+.pick{display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:10px;background:var(--soft);font-size:13px;font-weight:600;cursor:pointer}
+.pick input{width:18px;height:18px;accent-color:var(--accent)}
+.resrow.off{opacity:.5}
 
 /* ---------- misc ---------- */
 .toast{position:fixed;left:50%;bottom:26px;transform:translateX(-50%);background:var(--ink);color:#fff;border-radius:16px;padding:12px 16px;display:flex;align-items:center;gap:14px;

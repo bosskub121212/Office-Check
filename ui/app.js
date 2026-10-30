@@ -95,10 +95,11 @@ function billRow(b, showMonth) {
     <td class="r num b">${b.total}${b.countable ? "" : '<div class="m">ไม่นับยอด</div>'}</td>
     <td>${docsCell(b.docs)}</td>
     <td class="nowrap">${status(b.level, b.level_txt)}${b.paid ? `<div class="m">รับเงิน ${esc(b.paid)}</div>` : b.bi ? `<div class="m">ครบ ${esc(b.due)}</div>` : ""}</td>
+    <td class="r"><button class="ibtn rm" type="button" data-act="remove" data-id="${b.file_id}" data-name="${esc(b.filename)}" aria-label="ลบไฟล์ ${esc(b.iv)} ออกจากระบบ" title="ลบไฟล์นี้ออก (อัพผิด)">${svg(I.trash, 17)}</button></td>
   </tr>`;
 }
 
-const billHead = `<thead><tr><th scope="col">เลขที่ / วันที่</th><th scope="col">ลูกค้า · สินค้า</th><th scope="col" class="r">ก่อน VAT</th><th scope="col" class="r">VAT</th><th scope="col" class="r">รวม</th><th scope="col">เอกสาร</th><th scope="col">สถานะ</th></tr></thead>`;
+const billHead = `<thead><tr><th scope="col">เลขที่ / วันที่</th><th scope="col">ลูกค้า · สินค้า</th><th scope="col" class="r">ก่อน VAT</th><th scope="col" class="r">VAT</th><th scope="col" class="r">รวม</th><th scope="col">เอกสาร</th><th scope="col">สถานะ</th><th scope="col"><span class="sr">ลบ</span></th></tr></thead>`;
 
 function emptyState() {
   return `<div class="panel" style="align-items:center;text-align:center;padding:56px 24px">
@@ -134,9 +135,10 @@ const RENDER = {
           <button class="chip" type="button" data-act="filter" data-f="all" aria-pressed="${f === "all"}">ทั้งหมด ${d.bills.length}</button>
           <button class="chip" type="button" data-act="filter" data-f="billed" aria-pressed="${f === "billed"}">มีใบวางบิล ${nBilled}</button>
           <button class="chip" type="button" data-act="filter" data-f="prob" aria-pressed="${f === "prob"}">ต้องตรวจ ${nProb}</button>
+          <button class="btn ghost sm" type="button" data-act="openMonth">${svg(I.folder, 16)}เปิดโฟลเดอร์เดือนนี้</button>
           <button class="btn ghost sm" type="button" data-act="export">${svg(I.dl, 16)}ส่งออก Excel</button>
         </div></div>
-      <div class="tw"><table style="min-width:780px">${billHead}<tbody>${rows.map((b) => billRow(b)).join("") || `<tr><td colspan="7" class="empty">ไม่มีบิลในกลุ่มนี้</td></tr>`}</tbody></table></div>
+      <div class="tw"><table style="min-width:700px">${billHead}<tbody>${rows.map((b) => billRow(b)).join("") || `<tr><td colspan="8" class="empty">ไม่มีบิลในกลุ่มนี้</td></tr>`}</tbody></table></div>
     </section>`;
     const cust = `<section class="panel" aria-labelledby="hCust"><h2 id="hCust">ยอดขายตามลูกค้า <small>(ก่อน VAT)</small></h2>
       ${d.customers.map((c, i) => `<div class="bar-row"><div class="t"><span>${esc(c.name)}</span><span class="num b">${c.amt}</span></div>
@@ -144,14 +146,18 @@ const RENDER = {
     const probs = `<section class="panel" aria-labelledby="hProb"><h2 id="hProb">ผลตรวจเอกสาร</h2>
       ${d.problems.length ? d.problems.map((p) => issueCard(p.iv, p.level, p.issues)).join("") : `<div class="iss blue" style="background:var(--ok-bg)">${svg(I.check, 20)}<div><strong style="color:var(--ok)">ไม่พบปัญหาที่ต้องแก้</strong>เอกสารทุกใบในเดือนนี้ตรงกัน</div></div>`}
       ${d.problems.length ? `<button class="btn ghost sm" type="button" data-act="nav" data-v="problems">ดูทั้งหมดในหน้าต้องตรวจ</button>` : ""}</section>`;
-    return kpis + `<div class="split" style="margin-top:22px">${table}<div style="flex:1 1 280px;min-width:0;display:flex;flex-direction:column;gap:20px">${cust}${probs}</div></div>`;
+    const alerts = d.alerts.length ? `<section class="alert" role="alert" aria-labelledby="hAlert" style="margin-bottom:22px">${svg(I.warn, 24)}
+      <div><h2 id="hAlert">พบเลขเอกสารซ้ำกันระหว่างบิลจริงคนละบริษัท ${d.alerts.length} รายการ</h2>
+      <ul>${d.alerts.map((a) => `<li><b>${esc(a.iv)}</b> · ${esc(a.message)}</li>`).join("")}</ul>
+      <p class="m" style="margin:0">ยอดของทุกใบถูกนับแล้ว ตรวจกับผู้ออกบิล แก้เลขที่ให้ถูกต้อง และแจ้งสรรพากรตามขั้นตอน</p></div></section>` : "";
+    return alerts + kpis + `<div class="split" style="margin-top:22px">${table}<div style="flex:1 1 280px;min-width:0;display:flex;flex-direction:column;gap:20px">${cust}${probs}</div></div>`;
   },
 
   async bills() {
     const d = await api.all_bills();
     $("#subtitle").textContent = `${d.bills.length} ใบ จากทุกเดือน`;
     if (!d.bills.length) return emptyState();
-    return `<section class="panel table"><div class="tw"><table style="min-width:780px">${billHead}<tbody>${d.bills.map((b) => billRow(b)).join("")}</tbody></table></div></section>`;
+    return `<section class="panel table"><div class="tw"><table style="min-width:700px">${billHead}<tbody>${d.bills.map((b) => billRow(b)).join("")}</tbody></table></div></section>`;
   },
 
   async billing() {
@@ -206,6 +212,15 @@ const RENDER = {
         <label for="bugNote" class="b" style="font-size:14px">เล่าปัญหาสั้น ๆ (ไม่บังคับ)</label>
         <textarea id="bugNote" placeholder="เช่น อัพโหลดบิล NNCIV-260101 แล้วยอดไม่ขึ้น"></textarea>
         <div><button class="btn sm" type="button" data-act="bug">สร้างไฟล์รายงานปัญหา</button></div><div id="bugOut"></div></section>
+      <section class="panel" aria-labelledby="hArc"><h2 id="hArc">โฟลเดอร์เก็บไฟล์บิล</h2>
+        <p class="m" style="margin:0">ไฟล์ที่นำเข้าจะถูกคัดลอกไปไว้ที่นี่ แยกเป็น ปี / เดือน ตามวันที่บนใบกำกับ ไฟล์ต้นฉบับไม่ถูกย้าย</p>
+        <dl class="kv"><dt>โฟลเดอร์</dt><dd id="arcPath">${esc(S.boot.archive_dir)}</dd></dl>
+        <div style="display:flex;flex-wrap:wrap;gap:8px">
+          <button class="btn ghost sm" type="button" data-act="open" data-path="${esc(S.boot.archive_dir)}">${svg(I.folder, 16)}เปิดโฟลเดอร์</button>
+          <button class="btn ghost sm" type="button" data-act="chooseArc">เปลี่ยนโฟลเดอร์</button>
+          <button class="btn ghost sm" type="button" data-act="syncArc">จัดไฟล์ให้ตรงอีกครั้ง</button>
+        </div><div id="arcOut"></div>
+        <p class="m" style="margin:0">ไฟล์เลขซ้ำอยู่ใน <b>_ทิ้ง-เลขซ้ำ</b> ของแต่ละเดือน · ไฟล์ที่อ่านไม่ได้อยู่ใน <b>_อ่านไม่ได้</b> · ไฟล์ที่กดลบอยู่ใน <b>_ลบออกแล้ว</b></p></section>
       <section class="panel" aria-labelledby="hData"><h2 id="hData">ข้อมูล</h2>
         <dl class="kv"><dt>ไฟล์ในระบบ</dt><dd>${S.boot.file_count} ไฟล์</dd><dt>โฟลเดอร์ข้อมูล</dt><dd>${esc(S.boot.data_dir)}</dd></dl>
         <div><button class="btn ghost sm" type="button" data-act="open" data-path="${esc(S.boot.data_dir)}">${svg(I.folder, 16)}เปิดโฟลเดอร์ข้อมูล</button></div>
@@ -272,7 +287,7 @@ function openImport(files) {
   root.innerHTML = `<div class="scrim" data-act="closeModal-bg"><div class="modal" role="dialog" aria-modal="true" aria-labelledby="mTitle">
     <div style="display:flex;justify-content:space-between;align-items:center;gap:12px"><h2 id="mTitle">นำเข้าบิล</h2>
       <button class="ibtn" type="button" data-act="closeModal" aria-label="ปิด">${svg(I.x, 18)}</button></div>
-    <div id="mBody"><button class="drop" id="dropBox" type="button" data-act="pick" style="width:100%">${svg(I.up, 34, 1.6)}<b>ลากไฟล์บิล .xlsx มาวางที่นี่</b><span>หรือคลิกเพื่อเลือกไฟล์ (เลือกได้หลายไฟล์พร้อมกัน)</span></button></div>
+    <div id="mBody"><button class="dropbox" id="dropBox" type="button" data-act="pick" style="width:100%">${svg(I.up, 34, 1.6)}<b>ลากไฟล์บิล .xlsx มาวางที่นี่</b><span>หรือคลิกเพื่อเลือกไฟล์ (เลือกได้หลายไฟล์พร้อมกัน)</span></button></div>
     <div class="foot" id="mFoot"></div></div></div>`;
   if (files && files.length) analyze(files);
 }
@@ -291,23 +306,34 @@ async function analyze(fileList) {
   const ok = res.results.filter((r) => r.status === "new").length;
   const bad = res.results.filter((r) => ["red", "drop"].includes(r.level)).length;
   $("#mBody").innerHTML = `<p style="margin:0">อ่านแล้ว ${res.results.length} ไฟล์${skipped ? ` (ข้ามไฟล์ที่ไม่ใช่ .xlsx ${skipped} ไฟล์)` : ""} · ${bad ? `<span class="late">ต้องแก้/ทิ้ง ${bad} ไฟล์</span> จะบันทึกไว้แต่ไม่นับยอดส่วนที่ผิด` : "ไม่พบปัญหาที่ต้องแก้"}</p>
-    <div class="res">${res.results.map((r, i) => `<div class="resrow" style="animation-delay:${i * 40}ms"><div class="l1"><div><span class="b">${esc(r.iv || "-")}</span> ${r.customer ? `· ${esc(r.customer)}` : ""} ${r.total ? `· <span class="num">฿${r.total}</span>` : ""} ${r.billed ? '<span class="doc" style="margin-left:6px">วางบิล</span>' : ""}</div>
+    <div class="res">${res.results.map((r, i) => `<div class="resrow" style="animation-delay:${i * 40}ms"><div class="l1"><div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+      ${r.status === "new" ? `<label class="pick"><input type="checkbox" data-idx="${i}" checked> นำเข้า</label>` : ""}<span class="b">${esc(r.iv || "-")}</span> ${r.customer ? `· ${esc(r.customer)}` : ""} ${r.total ? `· <span class="num">฿${r.total}</span>` : ""} ${r.billed ? '<span class="doc" style="margin-left:6px">วางบิล</span>' : ""}</div>
       ${status(r.level, r.headline)}</div><div class="fn">${esc(r.name)}${r.date ? ` · ${esc(r.date)}` : ""}</div>
       ${r.issues.filter((x) => x.level !== "blue" || r.level === "blue").length ? `<ul>${r.issues.map((x) => `<li>${esc(x.doc)}: ${esc(x.message)}</li>`).join("")}</ul>` : ""}</div>`).join("")}</div>`;
   $("#mFoot").innerHTML = `<button class="btn ghost" type="button" data-act="closeModal">ยกเลิก</button>
-    <button class="btn" type="button" data-act="commit" ${ok ? "" : "disabled"}>${svg(I.check, 18, 2.4)}บันทึก ${ok} ไฟล์</button>`;
+    <button class="btn" type="button" data-act="commit" id="commitBtn" ${ok ? "" : "disabled"}>${svg(I.check, 18, 2.4)}บันทึก <span id="commitN">${ok}</span> ไฟล์</button>`;
+  $("#mBody").addEventListener("change", (e) => {
+    if (!e.target.matches("input[data-idx]")) return;
+    e.target.closest(".resrow").classList.toggle("off", !e.target.checked);
+    const n = document.querySelectorAll("#mBody input[data-idx]:checked").length;
+    $("#commitN").textContent = n;
+    $("#commitBtn").disabled = !n;
+  });
 }
 
 async function commit(btn) {
   btn.disabled = true;
   btn.innerHTML = `<span class="spin"></span>กำลังบันทึก`;
-  const r = await api.commit(S.token);
+  const skip = [...document.querySelectorAll("#mBody input[data-idx]")].filter((c) => !c.checked).map((c) => Number(c.dataset.idx));
+  const r = await api.commit(S.token, skip);
   closeModal(false);
   if (!r.ok) { toast(r.error); return; }
   S.boot = await api.bootstrap();
   if (r.month) S.month = r.month;
   await refreshAll("overview");
-  toast(`บันทึก ${r.saved} ไฟล์แล้ว`);
+  const a = r.archive || {};
+  if (a.ok === false) toast(`บันทึก ${r.saved} ไฟล์แล้ว แต่คัดลอกลงโฟลเดอร์ไม่สำเร็จ ดูหน้าตั้งค่า`);
+  else toast(`บันทึก ${r.saved} ไฟล์แล้ว · คัดลอกลงโฟลเดอร์ ${a.root || ""}`, {label: "เปิดโฟลเดอร์", fn: () => api.open_month_folder(S.month)});
 }
 
 function closeModal(cancel = true) {
@@ -395,7 +421,7 @@ document.addEventListener("click", async (e) => {
         break;
       }
       case "remove": {
-        if (!confirm(`ลบไฟล์ "${t.dataset.name}" ออกจากระบบ?\n(ไฟล์ต้นฉบับในเครื่องไม่ถูกลบ และระบบสำรองข้อมูลไว้ก่อนลบ)`)) break;
+        if (!confirm(`ลบไฟล์ "${t.dataset.name}" ออกจากระบบ?\n- ไฟล์ต้นฉบับในเครื่องไม่ถูกลบ\n- สำเนาในโฟลเดอร์ตรวจบิลจะย้ายไปไว้ที่ _ลบออกแล้ว\n- ระบบสำรองข้อมูลไว้ก่อนลบ`)) break;
         await api.remove_file(Number(t.dataset.id));
         await refreshAll();
         toast("ลบไฟล์ออกจากระบบแล้ว");
@@ -419,6 +445,18 @@ document.addEventListener("click", async (e) => {
         break;
       }
       case "open": api.open_path(t.dataset.path); break;
+      case "openMonth": await api.open_month_folder(S.month); break;
+      case "chooseArc": case "syncArc": {
+        t.disabled = true;
+        const r = act === "chooseArc" ? await api.choose_archive(null) : await api.sync_archive();
+        t.disabled = false;
+        if (r.cancelled) break;
+        if (r.root && r.root !== S.boot.archive_dir) { S.boot.archive_dir = r.root; await go("settings", {keepScroll: true}); }
+        $("#arcOut").innerHTML = r.ok
+          ? `<div class="iss blue" style="background:var(--ok-bg)">${svg(I.check, 18)}<div><strong style="color:var(--ok)">เรียบร้อย</strong>คัดลอกใหม่ ${r.copied} · ย้าย ${r.moved} · อยู่ถูกที่แล้ว ${r.unchanged} ไฟล์</div></div>`
+          : `<div class="iss red">${svg(I.warn, 18)}<div><strong>ไม่สำเร็จบางไฟล์</strong>${esc(r.error || (r.errors || []).join(" · "))}</div></div>`;
+        break;
+      }
     }
   } catch (err) {
     console.error(err);

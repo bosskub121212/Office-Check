@@ -15,6 +15,9 @@
 
 ข้อมูลเก็บที่ `%LOCALAPPDATA%\InvoiceChecker\` (ฐานข้อมูล, backups 10 ชุดล่าสุด, logs)
 
+ไฟล์บิลที่นำเข้าจะถูกคัดลอกไปไว้ที่ `Documents\ตรวจบิล\<ปี>\<เดือน>\` (เปลี่ยนโฟลเดอร์ได้ที่หน้าตั้งค่า)
+ไฟล์เลขซ้ำอยู่ใน `_ทิ้ง-เลขซ้ำ` ของแต่ละเดือน ไฟล์ที่อ่านไม่ได้อยู่ใน `_อ่านไม่ได้` ไฟล์ที่กดลบอยู่ใน `_ลบออกแล้ว`
+
 ## สำหรับเครื่อง DEV
 
 ต้องมี Python 3.12+ (ติ๊ก "Add Python to PATH" ตอนติดตั้ง)
@@ -24,7 +27,7 @@
 | `run_dev.bat` | เปิดหน้าจอในเบราว์เซอร์ แก้ `ui/` แล้วกด F5 ดูผลได้ทันที |
 | `run_app.bat` | เปิดเป็นหน้าต่างโปรแกรมจริง (pywebview) |
 | `build_exe.bat` | ทดสอบ + build `dist\InvoiceChecker.exe` บนเครื่องตัวเอง |
-| `release.bat 1.0.1` | ทดสอบ → push → สร้าง tag `v1.0.1` → GitHub Actions build และปล่อยเวอร์ชันให้เครื่องนักบัญชี |
+| `release.bat 1.0.1` | ตั้งเวอร์ชัน → ทดสอบ → build exe → commit + tag + push → เปิดหน้า Releases ให้ลาก `InvoiceChecker.exe` ไปวางแล้วกด Publish |
 
 ทั้งสอง run ใช้ข้อมูลในโฟลเดอร์ `dev-data\` แยกจากข้อมูลจริง
 
@@ -46,5 +49,6 @@ app/
   api.py        ฟังก์ชันที่หน้าจอเรียก
   updater.py    อัพเดทจาก GitHub Releases
   bugreport.py  ไฟล์รายงานปัญหา
+  archive.py    คัดลอกไฟล์บิลลงโฟลเดอร์ ปี/เดือน
 ui/             หน้าจอ (แบบ A · Lavender Glass) ฟอนต์ Urbanist + Anuphan (SIL OFL)
 ```

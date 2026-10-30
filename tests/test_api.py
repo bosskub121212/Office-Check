@@ -39,7 +39,7 @@ def test_import_flow_preview_then_commit(tmp_path, monkeypatch):
     api.cancel(again["token"])
 
     s = api.summary("2026-02")
-    assert s["kpi"]["sub"] == "53,495.33"
+    assert s["kpi"]["sub"] == "55,495.33"
     assert s["kpi"]["billed_count"] == 2
     pay = api.payables()
     assert pay["count"] == 3
@@ -61,3 +61,21 @@ def test_bad_file_in_preview(tmp_path):
     api = Api(Store(tmp_path / "data.db"))
     res = api.analyze([{"name": "broken.xlsx", "b64": base64.b64encode(b"not excel").decode()}])
     assert res["results"][0]["level"] == "red"
+
+
+def test_commit_can_skip_files(tmp_path):
+    api = Api(Store(tmp_path / "data.db"))
+    files = [fixture for fixture in sorted(FIX.glob("*.xlsx"))][:3]
+    res = api.analyze(payload(files))
+    out = api.commit(res["token"], [1])
+    assert out["saved"] == 2
+    names = {r["filename"] for r in api._store.file_rows()}
+    assert files[1].name not in names and files[0].name in names
+
+
+def test_summary_alerts_duplicate_number_other_company(tmp_path):
+    api = Api(Store(tmp_path / "data.db"))
+    res = api.analyze(payload(sorted(FIX.glob("*.xlsx"))))
+    api.commit(res["token"])
+    alerts = api.summary("2026-02")["alerts"]
+    assert [a["iv"] for a in alerts] == ["NNCIV-269003"]

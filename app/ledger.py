@@ -5,6 +5,7 @@
 """
 from __future__ import annotations
 
+import re
 from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import date, timedelta
@@ -54,6 +55,21 @@ class Bill:
         return min(self.issues, key=lambda i: LEVEL_ORDER[i.level]).level
 
 
+def _party(tax_id: str, name: str) -> str:
+    if tax_id:
+        return tax_id
+    n = re.sub(r"\(\s*สำนักงานใหญ่\s*\)|สำนักงานใหญ่|บริษัท|จำกัด", "", name or "")
+    return re.sub(r"[^0-9a-z\u0e00-\u0e7f]", "", n.lower())
+
+
+def _by_party(group, key) -> list[list]:
+    """แบ่งบิลเลขเดียวกันตามลูกค้า (เลขผู้เสียภาษี ถ้าไม่มีใช้ชื่อ) — เรียงตามลำดับที่พบครั้งแรก"""
+    out: dict[str, list] = {}
+    for b in group:
+        out.setdefault(_party(*key(b)), []).append(b)
+    return list(out.values())
+
+
 def short_items(iv, limit=4) -> str:
     parts = []
     for it in iv.items:
@@ -81,23 +97,38 @@ class Ledger:
             else:
                 all_bills.append(b)
 
-        # กฎเลขใบกำกับซ้ำ: วันที่เก่าสุดชนะ · วันที่เท่ากัน → ไฟล์ที่นำเข้าทีหลังชนะ
+        # กฎเลขใบกำกับซ้ำ (แยกตามลูกค้า):
+        #  - ลูกค้าเดียวกัน → ไฟล์ copy: วันที่เก่าสุดชนะ · วันที่เท่ากัน → ไฟล์ที่นำเข้าทีหลังชนะ (แก้แล้วอัพซ้ำ)
+        #  - คนละบริษัท → บิลจริงที่ออกเลขซ้ำโดยผิดพลาด: นับยอดทุกใบ และแจ้งเตือนแดงให้แก้/แจ้งสรรพากร
         by_iv = defaultdict(list)
         for b in all_bills:
             by_iv[b.iv.number].append(b)
         for no, group in by_iv.items():
-            group.sort(key=lambda b: (b.iv.date, -b._order))
-            win = group[0]
-            self.bills.append(win)
-            for lose in group[1:]:
-                lose.dropped = True
-                if lose.iv.date == win.iv.date:
-                    msg = f"ไฟล์นี้ถูกแทนที่ด้วยไฟล์ที่นำเข้าทีหลัง ({win.pf.filename})"
-                else:
-                    msg = (f"เลข {no} ซ้ำกับไฟล์ \"{win.pf.filename}\" ลงวันที่ {thaidate.fmt(win.iv.date)} "
-                           f"ซึ่งเก่ากว่า — ถือเป็นไฟล์ copy ทิ้งไป")
-                lose.issues.insert(0, Issue(DROP, "DUP_IV", "FILE", msg))
-                self.dropped.append(lose)
+            winners = []
+            for cluster in _by_party(group, lambda b: (b.iv.tax_id, b.iv.customer_name)):
+                cluster.sort(key=lambda b: (b.iv.date, -b._order))
+                win = cluster[0]
+                winners.append(win)
+                self.bills.append(win)
+                for lose in cluster[1:]:
+                    lose.dropped = True
+                    if lose.iv.date == win.iv.date:
+                        msg = f"ไฟล์นี้ถูกแทนที่ด้วยไฟล์ที่นำเข้าทีหลัง ({win.pf.filename})"
+                    else:
+                        msg = (f"เลข {no} ซ้ำกับไฟล์ \"{win.pf.filename}\" ของลูกค้าเดียวกัน ลงวันที่ {thaidate.fmt(win.iv.date)} "
+                               f"ซึ่งเก่ากว่า — ถือเป็นไฟล์ copy ทิ้งไป")
+                        if lose.iv.total != win.iv.total:
+                            msg += (f" (ยอดไม่เท่ากัน: {m(lose.iv.total)} / {m(win.iv.total)} — ถ้าเป็นบิลจริงคนละใบ "
+                                    f"ต้องแก้เลขที่ใบกำกับแล้วนำเข้าใหม่)")
+                    lose.issues.insert(0, Issue(DROP, "DUP_IV", "FILE", msg))
+                    self.dropped.append(lose)
+            if len(winners) > 1:
+                for b in winners:
+                    others = " · ".join(f"{o.iv.customer_name} ({thaidate.fmt(o.iv.date)}, {m(o.iv.total)} บาท)"
+                                        for o in winners if o is not b)
+                    b.issues.insert(0, Issue(RED, "DUP_IV_REAL", "IV",
+                                             f"เลขใบกำกับ {no} ถูกใช้ซ้ำกับบิลของบริษัทอื่น: {others} — นับยอดทั้งสองใบ "
+                                             f"แต่เลขที่ใบกำกับซ้ำกัน ต้องแก้ไขเอกสารและแจ้งสรรพากร"))
 
         for b in self.bills:
             b.countable = sales_countable(b.issues)
@@ -130,14 +161,23 @@ class Ledger:
         for no, group in by_no.items():
             if len(group) < 2:
                 continue
-            group.sort(key=lambda b: (b.iv.date, -b._order))
-            win = group[0]
-            for lose in group[1:]:
-                lose.issues.insert(0, Issue(DROP, code, attr.upper(),
-                                            f"เลข{name} {no} ซ้ำกับ {win.iv.number} (ลงวันที่ {thaidate.fmt(win.iv.date)} ซึ่งเก่ากว่า) — "
-                                            f"ถือว่า sheet {name}นี้ copy มา ไม่นับ"))
-                if attr == "bi":
-                    lose.billed = False
+            winners = []
+            key = lambda b: (getattr(b.pf, attr).tax_id or b.iv.tax_id, getattr(b.pf, attr).customer_name or b.iv.customer_name)  # noqa: E731
+            for cluster in _by_party(group, key):
+                cluster.sort(key=lambda b: (b.iv.date, -b._order))
+                win = cluster[0]
+                winners.append(win)
+                for lose in cluster[1:]:
+                    lose.issues.insert(0, Issue(DROP, code, attr.upper(),
+                                                f"เลข{name} {no} ซ้ำกับ {win.iv.number} (ลงวันที่ {thaidate.fmt(win.iv.date)} ซึ่งเก่ากว่า) — "
+                                                f"ถือว่า sheet {name}นี้ copy มา ไม่นับ"))
+                    if attr == "bi":
+                        lose.billed = False
+            if len(winners) > 1:
+                for b in winners:
+                    others = " · ".join(f"{o.iv.number} {o.iv.customer_name}" for o in winners if o is not b)
+                    b.issues.insert(0, Issue(RED, code + "_REAL", attr.upper(),
+                                             f"เลข{name} {no} ถูกใช้ซ้ำกับบิลของบริษัทอื่น: {others} — นับทั้งสองใบ แต่ต้องแก้เลขที่{name}"))
 
     # ------------------------------------------------------------ queries
     def months(self) -> list[str]:

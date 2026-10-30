@@ -66,8 +66,12 @@ class Store:
         bdir = self.path.parent / "backups"
         bdir.mkdir(exist_ok=True)
         dest = bdir / f"data-{datetime.now():%Y%m%d-%H%M%S}-{reason}.db"
-        with sqlite3.connect(dest) as out:
+        # ต้อง close() เอง: "with sqlite3.connect()" แค่ commit ไม่ปิดไฟล์ บน Windows จะลบไฟล์ backup เก่าไม่ได้
+        out = sqlite3.connect(dest)
+        try:
             self.db.backup(out)
+        finally:
+            out.close()
         olds = sorted(bdir.glob("data-*.db"))
         for old in olds[:-KEEP_BACKUPS]:
             old.unlink(missing_ok=True)

@@ -81,3 +81,14 @@ def test_backup_rotation(tmp_path):
     for i in range(12):
         st.backup(f"t{i:02d}")
     assert len(list((tmp_path / "backups").glob("*.db"))) == 10
+    # ต้องไม่มีไฟล์ backup ถูกเปิดค้าง (บน Windows ไฟล์ที่เปิดค้างจะลบไม่ได้)
+    import os
+    fd_dir = "/proc/self/fd"
+    if os.path.isdir(fd_dir):
+        held = []
+        for f in os.listdir(fd_dir):
+            try:
+                held.append(os.readlink(os.path.join(fd_dir, f)))
+            except OSError:
+                pass
+        assert not [h for h in held if "backups" in h]

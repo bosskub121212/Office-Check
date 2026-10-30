@@ -250,6 +250,7 @@ class Api:
             pf = read_file(p, display_name=f["name"])
             p.unlink(missing_ok=True)
             parsed.append((pf, raw))
+        tmp.rmdir()
         # ดูผลเหมือนบันทึกแล้ว (กฎเลขซ้ำต้องเทียบกับของเดิมในระบบ)
         existing = self._store.files()
         seen = {pf.sha256 for _, _, pf in existing}
